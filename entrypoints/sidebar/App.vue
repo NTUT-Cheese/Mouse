@@ -11,6 +11,37 @@ const currentTabId = ref<number | null>(null);
 const selectedCategory = ref<BehaviorCategory | null>(null);
 const expandedCards = ref<Set<string>>(new Set());
 
+const isInspectorActive = ref(true);
+
+async function toggleInspector() {
+  isInspectorActive.value = !isInspectorActive.value;
+  if (currentTabId.value) {
+    try {
+      await browser.tabs.sendMessage(currentTabId.value, {
+        action: MSG_ACTION.TOGGLE_INSPECTOR,
+        enabled: isInspectorActive.value,
+      });
+    } catch {
+      // silent
+    }
+  }
+}
+
+async function checkInspectorStatus() {
+  if (currentTabId.value) {
+    try {
+      const res = await browser.tabs.sendMessage(currentTabId.value, {
+        action: MSG_ACTION.GET_INSPECTOR_STATUS,
+      });
+      if (res?.enabled !== undefined) {
+        isInspectorActive.value = res.enabled;
+      }
+    } catch {
+      // silent
+    }
+  }
+}
+
 // 取得目前分頁的 tabId，並向 background 請求初始資料
 async function init() {
   try {
@@ -24,6 +55,7 @@ async function init() {
       if (res?.behaviors) {
         behaviors.value = res.behaviors;
       }
+      checkInspectorStatus();
     }
   } catch (err) {
     console.error('[Mouse UI] 初始化失敗', err);
@@ -68,10 +100,24 @@ const filteredBehaviors = computed(() => {
 
 <template>
   <header class="sidebar-header">
-    <h1>
-      <span class="icon">🔍</span>
-      Mouse 網頁行為透視
-    </h1>
+    <div class="header-top">
+      <h1>
+        <span class="icon">🔍</span>
+        Mouse 行為透視
+      </h1>
+
+      <!-- 懸停探針 Toggle 開關 -->
+      <button 
+        class="toggle-button"
+        :class="{ active: isInspectorActive }"
+        @click="toggleInspector"
+        title="切換網頁元素懸停預報"
+      >
+        <span class="toggle-icon">🎯</span>
+        <span class="toggle-text">懸停預報</span>
+        <span class="toggle-pill"></span>
+      </button>
+    </div>
     <div class="subtitle">所見即所做・無判斷的透明報告</div>
   </header>
 

@@ -105,23 +105,71 @@ body {
   z-index: 10;
 }
 
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .sidebar-header h1 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
 }
 
 .sidebar-header h1 .icon {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .sidebar-header .subtitle {
   font-size: 11px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 4px;
+}
+
+/* 懸停探針 Toggle 開關 */
+.toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 100px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.toggle-button:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.toggle-button .toggle-pill {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.toggle-button.active {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: rgba(88, 166, 255, 0.4);
+  color: var(--text-primary);
+}
+
+.toggle-button.active .toggle-pill {
+  background: #58a6ff;
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.8);
 }
 
 /* ─── 檢視模式切換 ────────────────────────────────────────── */

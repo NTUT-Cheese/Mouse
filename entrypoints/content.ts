@@ -374,6 +374,331 @@ export default defineContentScript({
       });
     }
 
+    // ─── 4. 懸停探針 (Hover Inspector) 浮動 UI ───────────────────────
+
+    let isInspectorEnabled = true;
+    let inspectorTooltipEl: HTMLElement | null = null;
+
+    function createInspectorTooltip() {
+      if (inspectorTooltipEl) return inspectorTooltipEl;
+      const el = document.createElement('div');
+      el.id = '__mouse_hover_tooltip__';
+      el.style.cssText = `
+        position: fixed;
+        z-index: 2147483647;
+        pointer-events: none;
+        display: none;
+        padding: 10px 14px;
+        background: rgba(13, 17, 23, 0.94);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(88, 166, 255, 0.4);
+        border-radius: 10px;
+        color: #e6edf3;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 11.5px;
+        line-height: 1.5;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        max-width: 320px;
+        transition: opacity 150ms ease, transform 150ms ease;
+      `;
+      (document.body || document.documentElement).appendChild(el);
+      inspectorTooltipEl = el;
+      return el;
+    }
+
+    function removeInspectorTooltip() {
+      if (inspectorTooltipEl) {
+        inspectorTooltipEl.remove();
+        inspectorTooltipEl = null;
+      }
+    }
+
+    function updateTooltipPos(e: MouseEvent | PointerEvent) {
+      if (!inspectorTooltipEl) return;
+      const x = e.clientX + 14;
+      const y = e.clientY + 14;
+      const rect = inspectorTooltipEl.getBoundingClientRect();
+      const maxX = window.innerWidth - rect.width - 16;
+      const maxY = window.innerHeight - rect.height - 16;
+
+      inspectorTooltipEl.style.left = `${Math.max(10, Math.min(x, maxX))}px`;
+      inspectorTooltipEl.style.top = `${Math.max(10, Math.min(y, maxY))}px`;
+    }
+
+    function findInteractiveElement(el: Element | null): Element | null {
+      if (!el) return null;
+
+      // 向上遍歷，優先尋找最具代表性的父級互動容器 (a, button, form, [role="button"], [onclick], [href])
+      let curr: Element | null = el;
+      let fallbackMediaEl: Element | null = null;
+
+      while (curr && curr !== document.documentElement && curr !== document.body) {
+        const tag = curr.tagName.toLowerCase();
+        
+        // 1. 標準容器 (a, button, form, input, select, textarea, role="button")
+        if (['button', 'a', 'input', 'select', 'textarea', 'form', 'option'].includes(tag) || curr.getAttribute('role') === 'button') {
+          return curr;
+        }
+
+        // 2. 帶有 onclick, href, data-href, data-mouse-handler-info 的任意父級元素
+        if (
+          curr.hasAttribute('onclick') ||
+          curr.hasAttribute('onmousedown') ||
+          curr.hasAttribute('data-mouse-handler-info') ||
+          curr.hasAttribute('href') ||
+          curr.hasAttribute('data-href')
+        ) {
+          return curr;
+        }
+
+        // 3. 若懸停在 img / svg / canvas 上，暫存作為 fallback（如果上方沒有找到 a 或 button 容器）
+        if (!fallbackMediaEl && ['img', 'svg', 'canvas'].includes(tag)) {
+          fallbackMediaEl = curr;
+        }
+
+        curr = curr.parentElement;
+      }
+
+      return fallbackMediaEl;
+    }
+
+    function handlePointerOver(e: MouseEvent | PointerEvent) {
+      if (!isInspectorEnabled) return;
+      const target = e.target as Element | null;
+      if (!target) return;
+
+      const interactiveEl = findInteractiveElement(target);
+      if (!interactiveEl) {
+        if (inspectorTooltipEl) inspectorTooltipEl.style.display = 'none';
+        return;
+      }
+
+      const tooltip = createInspectorTooltip();
+      const tag = interactiveEl.tagName.toLowerCase();
+      let summaryText = '';
+      let targetUrl = '';
+      let isSameOriginVal: boolean | undefined = undefined;
+      const featuresList: string[] = [];
+
+      // 標籤名稱/標題抽取 (母元素與子元素屬性融合)
+      let labelText = (interactiveEl.getAttribute('title') || interactiveEl.getAttribute('alt') || '').trim();
+      if (!labelText) {
+        labelText = (interactiveEl.textContent || '').trim();
+      }
+      if (!labelText) {
+        const childMeta = interactiveEl.querySelector('[title], [alt], img');
+        if (childMeta) {
+          labelText = (childMeta.getAttribute('title') || childMeta.getAttribute('alt') || childMeta.getAttribute('src')?.split('/').pop() || '').trim();
+        }
+      }
+
+      // 1. 連結分析 (<a>)
+      if (tag === 'a' || interactiveEl.hasAttribute('href')) {
+        const href = interactiveEl.getAttribute('href');
+        const downloadAttr = interactiveEl.getAttribute('download');
+        const targetAttr = interactiveEl.getAttribute('target');
+
+        if (targetAttr === '_blank') {
+          featuresList.push('在新分頁開啟 (target="_blank")');
+        }
+        if (downloadAttr !== null) {
+          featuresList.push(`觸發宣告式檔案下載 (download="${downloadAttr}")`);
+        }
+        if (href) {
+          try {
+            const u = new URL(href, location.href);
+            targetUrl = u.href;
+            isSameOriginVal = u.origin === location.origin;
+            const filename = u.pathname.split('/').pop() || '';
+            const fileExtMatch = filename.match(/\.(pdf|zip|exe|apk|dmg|csv|xlsx|doc|docx|rar|7z|tar|gz|mp3|mp4)$/i);
+            
+            if (fileExtMatch && fileExtMatch[1]) {
+              featuresList.push(`目標為檔案資源 (*.${fileExtMatch[1].toLowerCase()})`);
+              summaryText = `📥 下載檔案：${filename}`;
+            } else if (downloadAttr !== null) {
+              summaryText = `📥 下載檔案：${downloadAttr || filename || u.pathname}`;
+            } else {
+              summaryText = `開啟連結：${labelText ? `${labelText} (${u.pathname})` : u.pathname}`;
+            }
+          } catch {
+            targetUrl = href;
+          }
+        }
+      }
+
+      // 2. 表單按鈕分析 (<form> / <button>)
+      const form = interactiveEl.closest('form');
+      if (form) {
+        const action = form.getAttribute('action') || location.href;
+        const method = (form.getAttribute('method') || 'GET').toUpperCase();
+        try {
+          const u = new URL(action, location.href);
+          targetUrl = u.href;
+          isSameOriginVal = u.origin === location.origin;
+          summaryText = `提交表單至 ${u.pathname} (${method})`;
+        } catch {
+          targetUrl = action;
+        }
+
+        const pwFields = form.querySelectorAll('input[type="password"]');
+        if (pwFields.length > 0) {
+          featuresList.push(`表單含 ${pwFields.length} 個密碼輸入框`);
+        }
+      }
+
+      // 3. 掃描 DOM data-屬性 (data-href, data-url, data-target, data-navigate)
+      const dataUrl = interactiveEl.getAttribute('data-href') || interactiveEl.getAttribute('data-url') || interactiveEl.getAttribute('data-target') || interactiveEl.getAttribute('data-navigate') || interactiveEl.getAttribute('data-path');
+      if (dataUrl && !targetUrl) {
+        try {
+          const u = new URL(dataUrl, location.href);
+          targetUrl = u.href;
+          isSameOriginVal = u.origin === location.origin;
+          summaryText = `JS 跳轉至：${u.pathname}`;
+          featuresList.push(`自訂屬性指明跳轉目標 (${dataUrl})`);
+        } catch {
+          targetUrl = dataUrl;
+        }
+      }
+
+      // 4. 內嵌 onclick 屬性分析 (例如 <img onclick="location.href='...'">)
+      const onclickAttr = interactiveEl.getAttribute('onclick');
+      if (onclickAttr) {
+        featuresList.push(`內嵌 onclick="${onclickAttr.slice(0, 40)}${onclickAttr.length > 40 ? '…' : ''}"`);
+        if (/fetch|XMLHttpRequest|sendBeacon|axios/i.test(onclickAttr)) featuresList.push('包含網路請求 (fetch/XHR)');
+        if (/password|credit|card|secret/i.test(onclickAttr)) featuresList.push('讀取密碼/敏感欄位');
+        if (/cookie|localStorage|sessionStorage/i.test(onclickAttr)) featuresList.push('讀取 Cookie/Storage');
+        if (/location|open\(/i.test(onclickAttr)) featuresList.push('觸發頁面跳轉');
+        if (/download|createObjectURL|msSaveBlob|\.(pdf|zip|exe|apk|dmg|csv|xlsx|doc|docx)\b/i.test(onclickAttr)) featuresList.push('📥 包含檔案下載機制 (Blob/Download)');
+
+        // 嘗試從 onclick 字串解析跳轉 URL
+        const onclickNavMatch = onclickAttr.match(/(?:location(?:\.href|\.assign|\.replace)?|open|push|navigate)\s*(?:=\s*|\(\s*)['"`]([^'"`]+)['"`]/i);
+        if (onclickNavMatch && onclickNavMatch[1] && !targetUrl) {
+          try {
+            const u = new URL(onclickNavMatch[1], location.href);
+            targetUrl = u.href;
+            isSameOriginVal = u.origin === location.origin;
+            summaryText = `JS 跳轉至：${u.pathname}`;
+          } catch {
+            targetUrl = onclickNavMatch[1];
+          }
+        }
+      }
+
+      // 5. 讀取 injected script 記錄的事件處理器特徵 (直接綁定 vs 全域委派)
+      const handlerInfoRaw = interactiveEl.getAttribute('data-mouse-handler-info');
+      const globalHandlerRaw = document.documentElement.getAttribute('data-mouse-global-handler-info');
+      
+      if (handlerInfoRaw) {
+        try {
+          const info = JSON.parse(handlerInfoRaw);
+          if (info.features?.includes('fetch')) featuresList.push('包含網路請求 (fetch/XHR)');
+          if (info.features?.includes('password')) featuresList.push('讀取密碼/敏感欄位');
+          if (info.features?.includes('storage')) featuresList.push('讀取 Cookie/Storage');
+          if (info.features?.includes('navigation')) featuresList.push('觸發頁面跳轉');
+          if (info.features?.includes('download')) featuresList.push('📥 包含檔案下載機制 (Blob/Download)');
+
+          if (info.navUrl && !targetUrl) {
+            try {
+              const u = new URL(info.navUrl, location.href);
+              targetUrl = u.href;
+              isSameOriginVal = u.origin === location.origin;
+              summaryText = `JS 監聽器跳轉至：${u.pathname}`;
+            } catch {
+              targetUrl = info.navUrl;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      } else if (globalHandlerRaw && !onclickAttr) {
+        try {
+          const globalInfo = JSON.parse(globalHandlerRaw);
+          featuresList.push('透過全域 Event Delegation 監聽');
+          if (globalInfo.features?.includes('fetch')) featuresList.push('全域監聽含網路請求 (fetch/XHR)');
+          if (globalInfo.features?.includes('password')) featuresList.push('全域監聽含密碼/敏感欄位存取');
+          if (globalInfo.features?.includes('download')) featuresList.push('📥 全域監聽含檔案下載機制');
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!summaryText) {
+        let labelText = (interactiveEl.textContent || '').trim();
+        if (!labelText && tag === 'img') {
+          const alt = interactiveEl.getAttribute('alt');
+          const title = interactiveEl.getAttribute('title');
+          const src = interactiveEl.getAttribute('src');
+          labelText = alt || title || (interactiveEl.id ? `#${interactiveEl.id}` : src ? src.split('/').pop() || '圖片' : '圖片');
+        }
+        labelText = labelText.slice(0, 30);
+        summaryText = onclickAttr ? `執行內嵌函式：${onclickAttr.slice(0, 30)}` : `互動元件：${labelText || `<${tag}>`}`;
+      }
+
+      const originBadge = isSameOriginVal !== undefined
+        ? `<span style="display:inline-block; padding:1px 6px; border-radius:100px; font-size:10px; margin-left:6px; ${isSameOriginVal ? 'background:rgba(88,166,255,0.2); color:#58a6ff;' : 'background:rgba(188,140,255,0.2); color:#bc8cff;'}">${isSameOriginVal ? '同源' : '跨源'}</span>`
+        : '';
+
+      tooltip.innerHTML = `
+        <div style="font-weight:700; color:#58a6ff; margin-bottom:4px; display:flex; align-items:center; justify-content:space-between;">
+          <span>🔍 Mouse 懸停預報</span>
+          <span style="font-size:10px; color:#8b949e; font-weight:normal;">&lt;${tag}&gt;</span>
+        </div>
+        <div style="margin-bottom:4px; font-weight:500;">
+          ${summaryText} ${originBadge}
+        </div>
+        ${targetUrl ? `<div style="font-size:10.5px; color:#8b949e; word-break:break-all; font-family:monospace; margin-bottom:4px;">目標：${targetUrl}</div>` : ''}
+        ${featuresList.length > 0 ? `<div style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.1); color:#7ee787; font-size:10.5px;">⚡ 特徵：${featuresList.join('、')}</div>` : ''}
+      `;
+
+      tooltip.style.display = 'block';
+      updateTooltipPos(e);
+    }
+
+    function handlePointerMove(e: MouseEvent | PointerEvent) {
+      if (isInspectorEnabled && inspectorTooltipEl && inspectorTooltipEl.style.display !== 'none') {
+        updateTooltipPos(e);
+      }
+    }
+
+    function handlePointerOut() {
+      if (inspectorTooltipEl) {
+        inspectorTooltipEl.style.display = 'none';
+      }
+    }
+
+    function setInspectorEnabled(enabled: boolean) {
+      isInspectorEnabled = enabled;
+      if (enabled) {
+        window.addEventListener('pointerover', handlePointerOver, true);
+        window.addEventListener('mouseover', handlePointerOver, true);
+        window.addEventListener('pointermove', handlePointerMove, true);
+        window.addEventListener('mousemove', handlePointerMove, true);
+        window.addEventListener('pointerout', handlePointerOut, true);
+        window.addEventListener('mouseout', handlePointerOut, true);
+      } else {
+        window.removeEventListener('pointerover', handlePointerOver, true);
+        window.removeEventListener('mouseover', handlePointerOver, true);
+        window.removeEventListener('pointermove', handlePointerMove, true);
+        window.removeEventListener('mousemove', handlePointerMove, true);
+        window.removeEventListener('pointerout', handlePointerOut, true);
+        window.removeEventListener('mouseout', handlePointerOut, true);
+        removeInspectorTooltip();
+      }
+    }
+
+    // 預設開啟懸停探針
+    setInspectorEnabled(true);
+
+    // 監聽來自 Sidebar 的懸停探針控制訊息
+    browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg.action === MSG_ACTION.TOGGLE_INSPECTOR) {
+        setInspectorEnabled(!!msg.enabled);
+        sendResponse({ enabled: isInspectorEnabled });
+      } else if (msg.action === MSG_ACTION.GET_INSPECTOR_STATUS) {
+        sendResponse({ enabled: isInspectorEnabled });
+      }
+    });
+
     // ─── 啟動 ──────────────────────────────────────────────────
 
     // DOM 載入完成後開始掃描與監控

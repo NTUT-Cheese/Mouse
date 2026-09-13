@@ -21,6 +21,10 @@ export const MSG_ACTION = {
   GET_BEHAVIORS: 'get-behaviors',
   /** Background → Sidebar: 分頁重置通知 */
   TAB_RESET: 'tab-reset',
+  /** Sidebar → Content: 切換懸停預報開關 */
+  TOGGLE_INSPECTOR: 'toggle-inspector',
+  /** Sidebar → Content: 查詢懸停預報狀態 */
+  GET_INSPECTOR_STATUS: 'get-inspector-status',
 } as const;
 
 /** 行為分類的顯示資訊 */

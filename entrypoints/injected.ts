@@ -225,6 +225,39 @@ export default defineUnlistedScript({
               ? '（此為敏感輸入欄位）'
               : '';
 
+          // 針對 DOM Element 記錄事件處理函式特徵，供 Hover Inspector 懸停預判
+          if (['click', 'submit', 'mousedown'].includes(type) && listener) {
+            try {
+              const fnStr = typeof listener === 'function' ? listener.toString() : (listener.handleEvent ? listener.handleEvent.toString() : '');
+              const targetEl = this instanceof Element ? this : (this === window || this === document ? document.documentElement : null);
+              
+              if (targetEl) {
+                const attrName = (this === window || this === document) ? 'data-mouse-global-handler-info' : 'data-mouse-handler-info';
+                const existingRaw = targetEl.getAttribute(attrName);
+                const existing = existingRaw ? JSON.parse(existingRaw) : { features: [] };
+                const features: string[] = existing.features || [];
+
+                if (/fetch|XMLHttpRequest|sendBeacon|axios/i.test(fnStr) && !features.includes('fetch')) features.push('fetch');
+                if (/password|credit|card|secret/i.test(fnStr) && !features.includes('password')) features.push('password');
+                if (/cookie|localStorage|sessionStorage/i.test(fnStr) && !features.includes('storage')) features.push('storage');
+                let navUrl = '';
+                const navMatch = fnStr.match(/(?:location(?:\.href|\.assign|\.replace)?|open|push|navigate)\s*(?:=\s*|\(\s*)['"`]([^'"`]+)['"`]/i);
+                if (navMatch && navMatch[1]) {
+                  navUrl = navMatch[1];
+                  if (!features.includes('navigation')) features.push('navigation');
+                } else if (/location|open\(/i.test(fnStr) && !features.includes('navigation')) {
+                  features.push('navigation');
+                }
+
+                if (/download|createObjectURL|msSaveBlob|\.(pdf|zip|exe|apk|dmg|csv|xlsx|doc|docx|rar|7z|tar|gz)\b/i.test(fnStr) && !features.includes('download')) features.push('download');
+
+                targetEl.setAttribute(attrName, JSON.stringify({ type, features, navUrl: navUrl || undefined }));
+              }
+            } catch {
+              // silent
+            }
+          }
+
           send({
             category: 'event-binding',
             source: 'JS_HOOK',
@@ -243,6 +276,88 @@ export default defineUnlistedScript({
       }
       return originalAddEventListener.apply(this, arguments as any);
     };
+
+    // ─── 4b. Hook HTMLElement.prototype.onclick ────────────────
+    try {
+      const onclickDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onclick');
+      if (onclickDesc && onclickDesc.set) {
+        Object.defineProperty(HTMLElement.prototype, 'onclick', {
+          get() {
+            return onclickDesc.get?.call(this);
+          },
+          set(fn) {
+            try {
+              if (fn && typeof fn === 'function') {
+                const fnStr = fn.toString();
+                const features: string[] = [];
+                if (/fetch|XMLHttpRequest|sendBeacon|axios/i.test(fnStr)) features.push('fetch');
+                if (/password|credit|card|secret/i.test(fnStr)) features.push('password');
+                if (/cookie|localStorage|sessionStorage/i.test(fnStr)) features.push('storage');
+                if (/location|open\(/i.test(fnStr)) features.push('navigation');
+                if (/download|createObjectURL|msSaveBlob|\.(pdf|zip|exe|apk|dmg|csv|xlsx|doc|docx)\b/i.test(fnStr)) features.push('download');
+
+                this.setAttribute('data-mouse-handler-info', JSON.stringify({ type: 'onclick', features }));
+
+                const elementDesc = describeElement(this);
+                send({
+                  category: 'event-binding',
+                  source: 'JS_HOOK',
+                  summary: `對 ${elementDesc || 'DOM 元素'} 設定了 onclick 處理函式`,
+                  details: `函式內容：${truncate(fnStr)}`,
+                  evidence: {
+                    eventType: 'onclick-set',
+                    targetElement: elementDesc,
+                    codePreview: truncate(fnStr),
+                    stackTrace: getStack(),
+                  },
+                });
+              }
+            } catch {
+              // silent
+            }
+            return onclickDesc.set?.call(this, fn);
+          },
+          configurable: true,
+        });
+      }
+    } catch {
+      // silent
+    }
+
+    // ─── 4c. 捕獲點擊時內嵌 onclick 的觸發 ───────────────────────
+    window.addEventListener(
+      'click',
+      (e: MouseEvent) => {
+        try {
+          const target = e.target as Element | null;
+          if (!target) return;
+
+          const interactiveEl = target.closest('[onclick], [data-mouse-handler-info], button, a, form');
+          if (!interactiveEl) return;
+
+          const onclickAttr = interactiveEl.getAttribute('onclick');
+          const elementDesc = describeElement(interactiveEl);
+
+          if (onclickAttr) {
+            send({
+              category: 'event-binding',
+              source: 'JS_HOOK',
+              summary: `觸發了 ${elementDesc || interactiveEl.tagName.toLowerCase()} 的內嵌 onclick 處理函式`,
+              details: `onclick="${truncate(onclickAttr)}"`,
+              evidence: {
+                eventType: 'onclick-execute',
+                targetElement: elementDesc,
+                codePreview: truncate(onclickAttr),
+                elementSnippet: describeElement(interactiveEl),
+              },
+            });
+          }
+        } catch {
+          // silent
+        }
+      },
+      true
+    );
 
     // ─── 5. Hook eval & Function ───────────────────────────────
 
