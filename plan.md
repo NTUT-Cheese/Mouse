@@ -122,13 +122,13 @@ type BehaviorCategory =
 
 ## 階段實作計畫
 
-### Phase 1: 基礎攔截與行為回報管線 ✅ 已完成
+### Phase 1: 基礎攔截與行為回報管線
 - 初始化 Vue 3 + WXT 擴充功能專案。
 - 實作 Injected Script（MAIN World），完成 `fetch`、`XHR`、`sendBeacon`、`addEventListener`、`cookie`、`localStorage`、`eval`、`Function` 的攔截與日誌回傳。
 - 建立 Content Script ↔ Injected Script 的 nonce 驗證 postMessage 橋接。
 - 建立 Background Script 接收並聚合行為日誌。
 
-### Phase 2: DOM 監控與行為彙整 ✅ 已完成
+### Phase 2: DOM 監控與行為彙整
 - 在 Content Script 實作雙 MutationObserver（A: 特徵重掃描 / B: 威脅語義分析）。
 - 實作動態 `<script>`、`<iframe>`、`<form>`、`<meta>`、`onX`、`<link>` 插入偵測。
 - Background 實作行為去重、聚合與即時推送。
