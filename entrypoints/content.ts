@@ -464,8 +464,9 @@ export default defineContentScript({
 
     function handlePointerOver(e: MouseEvent | PointerEvent) {
       if (!isInspectorEnabled) return;
-      const target = e.target as Element | null;
-      if (!target) return;
+      const path = e.composedPath ? e.composedPath() : [];
+      const target = (path[0] || e.target) as Element | null;
+      if (!target || !(target instanceof Element)) return;
 
       const interactiveEl = findInteractiveElement(target);
       if (!interactiveEl) {

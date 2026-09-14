@@ -6,7 +6,7 @@ export default defineConfig({
   manifest: {
     name: 'Mouse — 網頁行為透視',
     description: '完整列出網頁做了什麼——每一次請求、每一個監聽、每一次存取，你都看得到',
-    permissions: ['activeTab', 'sidePanel', 'webNavigation', 'webRequest'],
+    permissions: ['activeTab', 'sidePanel', 'webNavigation', 'webRequest', 'webRequestBlocking'],
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Mouse',

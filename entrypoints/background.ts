@@ -178,7 +178,25 @@ export default defineBackground(() => {
     console.debug('[Mouse] webRequest API 不可用，跳過重導向追蹤');
   }
 
-  // ─── 分頁生命週期管理 ─────────────────────────────────────
+  // ─── 繞過嚴格 CSP 阻擋 ─────────────────────────────────────
+  if (browser.webRequest?.onHeadersReceived) {
+    try {
+      browser.webRequest.onHeadersReceived.addListener(
+        (details) => {
+          if (!details.responseHeaders) return;
+          const responseHeaders = details.responseHeaders.filter((header) => {
+            const name = header.name.toLowerCase();
+            return name !== 'content-security-policy' && name !== 'content-security-policy-report-only';
+          });
+          return { responseHeaders };
+        },
+        { urls: ['<all_urls>'], types: ['main_frame', 'sub_frame'] },
+        ['blocking', 'responseHeaders']
+      );
+    } catch {
+      // silent
+    }
+  }
 
   // 分頁關閉時清理
   browser.tabs.onRemoved.addListener((tabId) => {
