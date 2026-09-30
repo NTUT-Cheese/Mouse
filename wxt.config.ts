@@ -4,9 +4,14 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
+    browser_specific_settings: {
+      gecko: {
+        id: 'mouse@example.com',
+      },
+    },
     name: 'Mouse — 網頁行為透視',
     description: '完整列出網頁做了什麼——每一次請求、每一個監聽、每一次存取，你都看得到',
-    permissions: ['activeTab', 'sidePanel', 'webNavigation', 'webRequest'],
+    permissions: ['activeTab', 'sidePanel', 'webNavigation', 'webRequest', 'storage'],
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Mouse',

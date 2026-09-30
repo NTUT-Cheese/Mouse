@@ -13,6 +13,22 @@ export default defineUnlistedScript({
     const NONCE = nonceEl?.getAttribute('data-mouse-nonce') || '';
     const CHANNEL = '__MOUSE_BEHAVIOR_CHANNEL__';
 
+    // ─── 高動態網站與節流機制 ──────────────────────────────────
+    const isHighDynamicSite = /(?:^|\.)(youtube\.com|googlevideo\.com|netflix\.com|twitch\.tv|bilibili\.com)$/i.test(location.hostname);
+    const storageThrottleMap = new Map<string, number>();
+    let lastCookieReadTime = 0;
+
+    function shouldThrottleStorage(key: string, isSensitive = false): boolean {
+      if (isSensitive) return false;
+      const now = Date.now();
+      const last = storageThrottleMap.get(key) || 0;
+      if (now - last < 500) {
+        return true;
+      }
+      storageThrottleMap.set(key, now);
+      return false;
+    }
+
     // ─── 通用工具 ──────────────────────────────────────────────
     function send(payload: Record<string, unknown>) {
       try {
@@ -22,7 +38,9 @@ export default defineUnlistedScript({
       }
     }
 
-    function getStack(): string {
+    function getStack(isForce = false): string {
+      // 在高動態網站上，非強制要求（非高危操作）直接略過 stack trace 生成，防止 V8 調用棧捕捉凍結主線程
+      if (isHighDynamicSite && !isForce) return '';
       try {
         const stack = new Error().stack || '';
         const lines = stack.split('\n');
@@ -267,7 +285,7 @@ export default defineUnlistedScript({
               eventType: type,
               targetElement: elementDesc,
               relatedField: onPassword ? 'password' : onSensitive ? 'sensitive-input' : undefined,
-              stackTrace: getStack(),
+              stackTrace: getStack(onPassword || onSensitive),
             },
           });
         } catch {
@@ -419,15 +437,20 @@ export default defineUnlistedScript({
         get() {
           const val = cookieDesc.get?.call(document) || '';
           try {
-            send({
-              category: 'cookie-storage',
-              source: 'JS_HOOK',
-              summary: `讀取了 Cookie`,
-              details: `Cookie 包含 ${val.split(';').length} 個項目`,
-              evidence: {
-                stackTrace: getStack(),
-              },
-            });
+            const now = Date.now();
+            // Cookie 讀取 500ms 內只回報一次，避免高頻凍結
+            if (now - lastCookieReadTime >= 500) {
+              lastCookieReadTime = now;
+              send({
+                category: 'cookie-storage',
+                source: 'JS_HOOK',
+                summary: `讀取了 Cookie`,
+                details: `Cookie 包含 ${val.split(';').length} 個項目`,
+                evidence: {
+                  stackTrace: getStack(),
+                },
+              });
+            }
           } catch {
             // silent
           }
@@ -437,16 +460,20 @@ export default defineUnlistedScript({
           try {
             const keyMatch = val.match(/^([^=]+)/);
             const key = keyMatch && keyMatch[1] ? keyMatch[1].trim() : '(unknown)';
-            send({
-              category: 'cookie-storage',
-              source: 'JS_HOOK',
-              summary: `寫入了 Cookie「${key}」`,
-              details: `設定值：${truncate(val)}`,
-              evidence: {
-                key,
-                stackTrace: getStack(),
-              },
-            });
+            const isSensitive = /token|auth|session|jwt|csrf|secret|key/i.test(key);
+
+            if (!shouldThrottleStorage(key, isSensitive)) {
+              send({
+                category: 'cookie-storage',
+                source: 'JS_HOOK',
+                summary: `寫入了 Cookie「${key}」`,
+                details: `設定值：${truncate(val)}`,
+                evidence: {
+                  key,
+                  stackTrace: getStack(isSensitive),
+                },
+              });
+            }
           } catch {
             // silent
           }
@@ -465,16 +492,19 @@ export default defineUnlistedScript({
     lsProto.getItem = function (key: string) {
       try {
         if (this === localStorage) {
-          send({
-            category: 'cookie-storage',
-            source: 'JS_HOOK',
-            summary: `讀取了 localStorage「${key}」`,
-            details: `Key: ${key}`,
-            evidence: {
-              key,
-              stackTrace: getStack(),
-            },
-          });
+          const isSensitive = /token|auth|session|jwt|csrf|secret|password/i.test(key);
+          if (!shouldThrottleStorage(key, isSensitive)) {
+            send({
+              category: 'cookie-storage',
+              source: 'JS_HOOK',
+              summary: `讀取了 localStorage「${key}」`,
+              details: `Key: ${key}`,
+              evidence: {
+                key,
+                stackTrace: getStack(isSensitive),
+              },
+            });
+          }
         }
       } catch {
         // silent
@@ -485,16 +515,19 @@ export default defineUnlistedScript({
     lsProto.setItem = function (key: string, value: string) {
       try {
         if (this === localStorage) {
-          send({
-            category: 'cookie-storage',
-            source: 'JS_HOOK',
-            summary: `寫入了 localStorage「${key}」`,
-            details: `Key: ${key}, Value 大小: ${value.length} bytes`,
-            evidence: {
-              key,
-              stackTrace: getStack(),
-            },
-          });
+          const isSensitive = /token|auth|session|jwt|csrf|secret|password/i.test(key);
+          if (!shouldThrottleStorage(key, isSensitive)) {
+            send({
+              category: 'cookie-storage',
+              source: 'JS_HOOK',
+              summary: `寫入了 localStorage「${key}」`,
+              details: `Key: ${key}, Value 大小: ${value.length} bytes`,
+              evidence: {
+                key,
+                stackTrace: getStack(isSensitive),
+              },
+            });
+          }
         }
       } catch {
         // silent
@@ -505,16 +538,19 @@ export default defineUnlistedScript({
     lsProto.removeItem = function (key: string) {
       try {
         if (this === localStorage) {
-          send({
-            category: 'cookie-storage',
-            source: 'JS_HOOK',
-            summary: `移除了 localStorage「${key}」`,
-            details: `Key: ${key}`,
-            evidence: {
-              key,
-              stackTrace: getStack(),
-            },
-          });
+          const isSensitive = /token|auth|session|jwt|csrf|secret|password/i.test(key);
+          if (!shouldThrottleStorage(key, isSensitive)) {
+            send({
+              category: 'cookie-storage',
+              source: 'JS_HOOK',
+              summary: `移除了 localStorage「${key}」`,
+              details: `Key: ${key}`,
+              evidence: {
+                key,
+                stackTrace: getStack(isSensitive),
+              },
+            });
+          }
         }
       } catch {
         // silent

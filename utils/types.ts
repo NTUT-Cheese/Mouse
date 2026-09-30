@@ -53,6 +53,10 @@ export interface BehaviorEvidence {
   newValue?: string;
 }
 
+// ─── 資安風險等級 ───────────────────────────────────────────────
+
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
 // ─── 行為記錄（核心資料結構）────────────────────────────────────
 
 export interface BehaviorEntry {
@@ -72,6 +76,14 @@ export interface BehaviorEntry {
   evidence: BehaviorEvidence;
   /** 相同行為的重複次數 */
   count: number;
+  /** 是否為資安敏感/高風險行為（由 content buffer 層標記）*/
+  is_security_risk?: boolean;
+  /** 資安風險等級：HIGH = 立即威脅，MEDIUM = 需關注 */
+  risk_level?: RiskLevel;
+  /** 是否為多事件聚合摘要 */
+  is_aggregated?: boolean;
+  /** 聚合說明（當 is_aggregated=true 時提供摘要文字）*/
+  aggregation_note?: string;
 }
 
 // ─── Injected Script → Content Script 的 postMessage 格式 ──────
@@ -93,6 +105,10 @@ export interface RawBehaviorEvent {
   summary: string;
   details: string;
   evidence: BehaviorEvidence;
+  /** 由 content buffer 層標記：是否為資安高風險事件 */
+  is_security_risk?: boolean;
+  /** 資安風險等級 */
+  risk_level?: RiskLevel;
 }
 
 // ─── Background ↔ Sidebar 通訊格式 ─────────────────────────────
@@ -115,4 +131,25 @@ export interface CategoryInfo {
   label: string;
   icon: string;
   description: string;
+}
+
+// ─── LLM 診斷型別 ──────────────────────────────────────────────
+
+export type LLMRiskVerdict = 'SAFE' | 'SUSPICIOUS' | 'DANGEROUS';
+
+export interface LLMDiagnosisResponse {
+  domain: string;
+  risk: LLMRiskVerdict;
+  thinking?: string;
+  reasoning?: string;
+}
+
+export interface LLMDiagnosisResult {
+  domain: string;
+  risk: LLMRiskVerdict;
+  /** 完整思考過程（Ollama 原始輸出或解析後的 thinking 欄位）*/
+  thinking?: string;
+  /** 診斷結論摘要 */
+  reasoning?: string;
+  timestamp: number;
 }

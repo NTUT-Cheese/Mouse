@@ -25,6 +25,12 @@ export const MSG_ACTION = {
   TOGGLE_INSPECTOR: 'toggle-inspector',
   /** Sidebar → Content: 查詢懸停預報狀態 */
   GET_INSPECTOR_STATUS: 'get-inspector-status',
+  /** Background → Sidebar: LLM 診斷狀態與結果更新 */
+  LLM_STATUS_UPDATED: 'llm-status-updated',
+  /** Background → Sidebar: 手動觸發 LLM 診斷（測試用） */
+  TRIGGER_LLM_TEST: 'trigger-llm-test',
+  /** Background → Sidebar: LLM 診斷逾時通知 */
+  LLM_TIMEOUT: 'llm-timeout',
 } as const;
 
 /** 行為分類的顯示資訊 */
@@ -81,3 +87,86 @@ export const DEDUP_WINDOW_MS = 2000;
 
 /** 最大保存行為數量（每個分頁）*/
 export const MAX_BEHAVIORS_PER_TAB = 5000;
+
+// ─── Buffer 降頻聚合設定 ────────────────────────────────────────────
+
+/** content.ts 降頻聚合的時間窗口（毫秒） */
+export const BUFFER_WINDOW_MS = 3000;
+
+/** 一個 Buffer 周期內最多容納的事件數量（防内存暴谷） */
+export const BUFFER_MAX_SIZE = 500;
+
+/**
+ * 資安高風險 Storage/Cookie Key 關鍵字（任一匹配即標記 MEDIUM 風險）
+ */
+export const SENSITIVE_STORAGE_KEYWORDS = [
+  'token', 'auth', 'session', 'jwt', 'csrf', 'secret',
+  'apikey', 'api_key', 'password', 'passwd', 'credential',
+  'access_token', 'refresh_token', 'id_token',
+] as const;
+
+/**
+ * 同源常態統計/遙測請求的 URL 路徑關鍵字
+ * 匹配這些路徑的同源請求將自動標記為 LOW 風險並預設收合
+ */
+export const LOW_RISK_URL_PATTERNS = [
+  '/api/stats', '/stats/', '/telemetry', '/metrics',
+  '/analytics', '/logging', '/log/', '/logs/',
+  '/heartbeat', '/ping', '/health', '/beacon',
+  '/collect', '/event/', '/events/', '/track',
+  '/impression', '/perf', '/performance',
+  'qoe', 'videoplayback', 'generate_204',
+] as const;
+
+/** UI 顯示 URL 的最大字元數（超過則截斷為 truncated + ...） */
+export const URL_DISPLAY_MAX_LENGTH = 60;
+
+// ─── LLM Dispatcher 與白名單設定 ────────────────────────────────
+
+/** 基礎靜態白名單網域清單（全名或母網域） */
+export const STATIC_WHITELIST = [
+  'youtube.com',
+  'googlevideo.com',
+  'ytimg.com',
+  'wikipedia.org',
+  'wikimedia.org',
+  'google.com',
+  'gstatic.com',
+  'github.com',
+  'githubassets.com',
+  'microsoft.com',
+  'apple.com',
+  'mozilla.org',
+] as const;
+
+/** 本地 Ollama API 端點 */
+export const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
+
+/** 預設使用的本地 LLM 模型名稱 */
+export const OLLAMA_MODEL = 'qwen2.5:3b';
+
+/** LLM 診斷請求逾時時間（毫秒） */
+export const LLM_TIMEOUT_MS = 10000;
+
+/** LLM 診斷請求冷卻時間（毫秒） */
+export const LLM_COOLDOWN_MS = 15000;
+
+/** Storage 中動態白名單的 key 名稱 */
+export const STORAGE_KEY_DYNAMIC_WHITELIST = 'mouse_dynamic_whitelist';
+
+// ─── 高動態 SPA 網站與效能防護設定 ────────────────────────────
+
+/** 高動態 SPA 網站網域名單（降低採樣頻率，加強節流） */
+export const HIGH_DYNAMIC_DOMAINS = [
+  'youtube.com',
+  'googlevideo.com',
+  'netflix.com',
+  'twitch.tv',
+  'bilibili.com',
+] as const;
+
+/** DOM MutationObserver 批次節流處理窗口（毫秒） */
+export const MUTATION_BATCH_WINDOW_MS = 500;
+
+/** Storage / Cookie 存取節流窗口（毫秒） */
+export const STORAGE_THROTTLE_MS = 500;
